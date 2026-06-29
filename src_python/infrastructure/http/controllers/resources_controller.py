@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any, List
 from fastapi import HTTPException, status, Request
-from ...domain.helpers.financial_parser_helper import FinancialParserHelper
-from ..container import container
+from ....domain.helpers.financial_parser_helper import FinancialParserHelper
+from ...container import container
 
 class ResourcesController:
     """
