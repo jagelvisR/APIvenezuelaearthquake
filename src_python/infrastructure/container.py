@@ -3,7 +3,9 @@ import redis
 from .adapters.redis_cache_adapter import RedisCacheAdapter
 from .adapters.redis_rate_limiter_adapter import RedisRateLimiterAdapter
 from .adapters.mock_db_repository_adapter import MockDBRepositoryAdapter
+from .adapters.mock_emergency_zone_repository_adapter import MockEmergencyZoneRepositoryAdapter
 from ..application.get_resources_use_case import GetResourcesUseCase
+from ..application.emergency_use_case import EmergencyUseCase
 from .config import settings
 
 logger = logging.getLogger("api.container")
@@ -51,11 +53,15 @@ class Container:
 
         # 2. Adaptador de Almacenamiento Primario
         self.resource_repository = MockDBRepositoryAdapter()
-        
+        self.emergency_zone_repository = MockEmergencyZoneRepositoryAdapter()
+
         # 3. Casos de Uso del Negocio
         self.get_resources_use_case = GetResourcesUseCase(
             repository=self.resource_repository,
             cache_service=self.cache_service
+        )
+        self.emergency_use_case = EmergencyUseCase(
+            repository=self.emergency_zone_repository
         )
 
 # Instanciación única global (Singleton)

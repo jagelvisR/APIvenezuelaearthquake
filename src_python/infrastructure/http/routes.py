@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query, Request, Security
 from typing import Optional, Dict, Any
 
 from .controllers.resources_controller import ResourcesController
+from .emergency_routes import emergency_router
 from .rate_limiter_decorator import rate_limit
 
 # Router principal v1
@@ -30,3 +31,5 @@ def get_resources(
 @router.post("/resources/parse-value", tags=["Helpers"])
 def execute_financial_parsing(payload: Dict[str, Any]):
     return ResourcesController.execute_financial_parsing(payload)
+
+router.include_router(emergency_router)
