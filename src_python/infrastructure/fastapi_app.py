@@ -7,7 +7,7 @@ from fastapi.security import APIKeyHeader
 
 from .config import settings
 from .container import container
-from .http.fastapi_controller import router
+from .http.routes import router
 from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
 import secrets
 
