@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query, Request, Security
 from typing import Optional, Dict, Any
 
-from .resources_controller import ResourcesController
+from .controllers.resources_controller import ResourcesController
 from .rate_limiter_decorator import rate_limit
 
 # Router principal v1

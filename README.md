@@ -35,7 +35,9 @@ apivenezuelaearthquake_backend/
         │   ├── redis_rate_limiter_adapter.py
         │   └── mock_db_repository_adapter.py
         └── http/               # Capa de API Controllers y Rutas.
-            └── fastapi_controller.py
+            ├── routes.py       # Definición e interfaz web de las rutas de FastAPI.
+            └── controllers/    # Controladores que mapean y procesan las solicitudes.
+                └── resources_controller.py  # Controlador HTTP que delega a los casos de uso.
 ```
 
 ---
