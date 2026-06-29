@@ -8,6 +8,8 @@ from fastapi.security import APIKeyHeader
 from .config import settings
 from .container import container
 from .http.fastapi_controller import router
+from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
+import secrets
 
 # Configuración limpia de logging estructurado
 logging.basicConfig(
@@ -19,6 +21,19 @@ logger = logging.getLogger("api.core")
 
 # --- Dependencia de Seguridad: Validación de API Key ---
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+security_basic = HTTPBasic()
+
+def validate_swagger_auth(credentials: HTTPBasicCredentials = Security(security_basic)):
+    """Valida credenciales HTTP Básicas para el acceso a la documentación de Swagger/Redoc."""
+    is_username_correct = secrets.compare_digest(credentials.username, settings.SWAGGER_USERNAME)
+    is_password_correct = secrets.compare_digest(credentials.password, settings.SWAGGER_PASSWORD)
+    if not (is_username_correct and is_password_correct):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales de documentación inválidas.",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 async def validate_api_key(api_key: str = Security(api_key_header)):
     """Verifica que el cliente suministre una API Key válida en la cabecera 'X-API-Key'"""
@@ -121,13 +136,15 @@ async def lifespan(app: FastAPI):
         pass
 
 
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+
 app = FastAPI(
     title="Clean Architecture Production API",
     description="Servicio backend robusto, desacoplado y de alto rendimiento utilizando Arquitectura Hexagonal.",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url=None,  # Deshabilita los endpoints públicos globales para protegerlos
+    redoc_url=None
 )
 
 # Configuración integrada de CORS
@@ -138,6 +155,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Rutas de Documentación Protegidas por HTTP Basic Auth ---
+@app.get("/docs", include_in_schema=False)
+async def secure_swagger_html(username: str = Security(validate_swagger_auth)):
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} - Swagger UI"
+    )
+
+@app.get("/redoc", include_in_schema=False)
+async def secure_redoc_html(username: str = Security(validate_swagger_auth)):
+    return get_redoc_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} - ReDoc"
+    )
 
 # Integración similar a la arquitectura Route de Laravel:
 # - Prefijado global para versionamiento (ej: /api)
