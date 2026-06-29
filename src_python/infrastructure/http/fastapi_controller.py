@@ -1,41 +1,12 @@
-import functools
+
 from fastapi import APIRouter, Security, HTTPException, status, Query, Request
 from typing import Optional, List, Dict, Any
 
 from ...domain.models import ResourceModel, RequestPayload
 from ...domain.helpers.financial_parser_helper import FinancialParserHelper
 from ..container import container
+from .rate_limiter_decorator import rate_limit
 
-# --- Decorador de Rate Limit para FastAPI ---
-def rate_limit(limit: int, window: int = 60):
-    """
-    Decorador para aplicar límites de peticiones (Rate Limiting) en endpoints de FastAPI de forma limpia.
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            request: Request = kwargs.get("request")
-            if not request:
-                for arg in args:
-                    if isinstance(arg, Request):
-                        request = arg
-                        break
-            
-            if not request:
-                return func(*args, **kwargs)
-                
-            client_ip = request.client.host if request.client else "unknown_ip"
-            identifier = f"{func.__name__}:{client_ip}"
-            
-            allowed = container.rate_limiter.is_allowed(identifier, limit=limit, window=window)
-            if not allowed:
-                 raise HTTPException(
-                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                     detail=f"Se ha superado el límite de autorizaciones para este recurso (máximo {limit} peticiones por {window} segundos)."
-                 )
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
 
 # Creamos el Router simulando un archivo de rutas de Laravel.
 # Permite agrupar los endpoints bajo un prefijo unificado y encapsular lógica limpia.
