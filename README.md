@@ -172,3 +172,70 @@ Para arrancar las suites de testeo unitarias y comprobar la integridad funcional
 ```bash
 pytest
 ```
+
+---
+
+## 🆘 Emergency endpoints (MVP mock/in-memory)
+
+> **Nota:** Esta primera versión del módulo Emergency usa **datos mock en memoria**. Los reportes **no son persistentes** y se pierden al reiniciar el proceso. No almacena datos personales sensibles (nombre, cédula, teléfono ni dirección exacta).
+
+Endpoints bajo el prefijo `/api/v1/emergency` (tag **Emergency** en Swagger):
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/zones` | Lista zonas reportadas (filtros: `state`, `municipality`, `status`, `attended`, `need`) |
+| `GET` | `/zones/{zone_id}` | Detalle de una zona |
+| `POST` | `/zones` | Crea un reporte de zona en memoria |
+| `PATCH` | `/zones/{zone_id}/status` | Actualiza el estado operativo |
+| `GET` | `/needs` | Resumen de necesidades agrupadas |
+| `GET` | `/sources` | Fuentes de información registradas |
+| `GET` | `/summary` | Resumen general (totales, necesidades críticas, zonas por estado) |
+
+**Estados permitidos:** `reported`, `needs_attention`, `in_progress`, `attended`, `resolved`
+
+**Necesidades reconocidas:** `agua`, `comida`, `medicinas`, `ropa`, `refugio`, `transporte`, `atención médica`, `maquinaria`, `voluntarios`
+
+### Ejemplos con cURL
+
+Listar zonas que necesitan agua en Lara:
+```bash
+curl "http://localhost:8000/api/v1/emergency/zones?state=Lara&need=agua"
+```
+
+Ver detalle de una zona:
+```bash
+curl "http://localhost:8000/api/v1/emergency/zones/zone_01"
+```
+
+Crear un reporte de zona (sin datos personales):
+```bash
+curl -X POST "http://localhost:8000/api/v1/emergency/zones" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "state": "Carabobo",
+    "municipality": "Valencia",
+    "sector": "Zona industrial",
+    "description": "Comunidad sin acceso a agua potable. Sin dirección exacta.",
+    "needs": ["agua", "transporte"],
+    "status": "reported",
+    "attended": false,
+    "source_name": "Discord - Coordinación Voluntarios VE",
+    "source_type": "discord"
+  }'
+```
+
+Actualizar estado de una zona:
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/emergency/zones/zone_03/status" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "in_progress"}'
+```
+
+Resumen de necesidades y panorama general:
+```bash
+curl "http://localhost:8000/api/v1/emergency/needs"
+curl "http://localhost:8000/api/v1/emergency/sources"
+curl "http://localhost:8000/api/v1/emergency/summary"
+```
+
+Documentación interactiva (usuario `admin`, contraseña `admin123`): `http://localhost:8000/docs`
