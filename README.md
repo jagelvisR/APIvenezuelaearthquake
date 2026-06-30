@@ -130,19 +130,18 @@ Con `ENVIRONMENT=development`:
 - El worker proactivo no se inicia.
 - Si `USE_REDIS=False`, el contenedor usa directamente fallback en memoria sin intentar `ping()` a Redis.
 
-### Producción
+### 🚀 Entorno de Producción (`ENVIRONMENT=production`)
+Fijado para despliegues de grado de producción:
+1. **Validación Estricta de API Key**: Bloqueo estricto del tráfico anónimo y denegaciones `401 Unauthorized` / `403 Forbidden`.
+2. **Worker de Caché Distribuido con Autolock**: Sincronización precisa y background loop a través de locks distribuidos en Redis.
+3. **Hot-Reload Deshabilitado**: Optimización máxima de hilos y sockets.
 
-Con `ENVIRONMENT=production`:
+---
 
-- `reload=False`.
-- La API key se valida estrictamente.
-- El worker proactivo puede refrescar caché en background.
-- Si `USE_REDIS=True`, la app intenta usar Redis real y cae a fallback sólo si la conexión falla.
+## 🚀 Guía de Levantamiento de la Aplicación
 
-## Levantar El Proyecto Localmente
-
-### Opción 1: Python local
-
+### Paso 1: Instalar Dependencias Locales (Opcional si usa Docker)
+Crear un entorno virtual de Python y arrancar dependencias:
 ```bash
 python -m venv .venv
 ```
@@ -154,6 +153,11 @@ python -m venv .venv
 ```bash
 pip install -r requirements.txt
 ```
+
+Importante:
+- Si ejecutas `python app.py` sin activar el entorno virtual, es normal que falle con errores como `ModuleNotFoundError: No module named 'uvicorn'`.
+- En Windows puedes arrancar directamente con `.\.venv\Scripts\python.exe app.py`.
+- En Linux o macOS puedes arrancar directamente con `./.venv/bin/python app.py`.
 
 ```bash
 copy .env.dev .env
@@ -189,7 +193,6 @@ Si no defines `PORT`, se usa `8000`.
 - Todas las rutas incluidas bajo `app.include_router(..., prefix="/api", dependencies=[Security(validate_api_key)])` requieren `X-API-Key`.
 - `GET /api/v1/status` también cae bajo ese prefijo, pero en desarrollo admite bypass por diseño.
 - `/docs` y `/redoc` no son públicas; usan autenticación Basic.
-
 Ejemplo con cURL:
 
 ```bash
@@ -249,44 +252,26 @@ El arreglo real contiene más de un recurso; el ejemplo está acotado al formato
 Request:
 
 ```bash
-curl -G "http://localhost:8000/api/v1/resources" \
-  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
-  --data-urlencode "category=IA"
+cp .env.dev .env
 ```
 
-Response esperada:
-
-```json
-[
-  {
-    "id": "res_02",
-    "name": "Motor de Predicciones AI",
-    "description": "Servicio conversacional de inferencia inteligente.",
-    "category": "IA",
-    "created_at": "2026-06-30T10:00:00",
-    "properties": {
-      "model": "deepseek-reasoner",
-      "api_calls_quota": 5000
-    }
-  }
-]
-```
-
-### 4. Forzar refresh de caché
-
-Request:
-
+### Paso 3: Arrancar con Docker Compose (Recomendado)
+Levanta de manera automática la API funcional y el servidor Redis de caché en contenedores independientes:
 ```bash
-curl -G "http://localhost:8000/api/v1/resources" \
-  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
-  --data-urlencode "refresh=true"
+docker-compose up --build -d
 ```
+La aplicación se encontrará lista en `http://localhost:8000`.
 
-Efecto:
+---
 
-- omite la lectura de caché para esa llamada;
-- vuelve a consultar el repositorio mock;
-- reescribe la clave de caché correspondiente.
+## 🛠️ Pruebas Locales Manuales durante el Desarrollo
+
+Durante el desarrollo, no necesitas configurar Redis ni API Keys válidas en cada petición gracias al **Modo Desarrollo**. Aquí tienes una guía rápida de cómo probar tu API de inmediato:
+
+### 1. Probar sin Redis (Auto-Mock)
+Si ejecutas la API localmente (`python app.py`) y no tienes un servidor Redis corriendo, la aplicación detectará el fallo de conexión automáticamente o la variable `ENVIRONMENT=development` y activará el **`MockRedisClient`**.
+- La API seguirá funcionando perfectamente.
+- Los límites de peticiones (Rate Limit) registrarán logs pero no bloquearán tus consultas.
 
 ### 5. Parsear valor financiero
 
@@ -362,15 +347,3 @@ Ejecutar:
 ```bash
 pytest tests/test_api_core.py
 ```
-
-Cobertura actual de esa suite:
-
-- `FinancialParserHelper.parse_float()`
-- `FinancialParserHelper.parse_int()`
-- `GetResourcesUseCase.execute()`
-
-## Notas Operativas
-
-- El `Dockerfile` expone `8000`, pero el proceso escucha en el valor de `PORT`.
-- El módulo raíz [app.py](app.py) exporta `app`, por lo que sirve tanto para `python app.py` como para `uvicorn app:app`.
-- `DATABASE_URL` aún no se usa en el código actual.
