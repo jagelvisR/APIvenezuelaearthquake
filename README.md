@@ -1,6 +1,9 @@
 # Backend API - APIVENEZUELAEARTHQUAKE
 
-Backend FastAPI con Arquitectura Hexagonal para exponer recursos consultables, parseo financiero auxiliar, caché con Redis opcional y fallback en memoria.
+Backend FastAPI con Arquitectura Hexagonal para dos slices funcionales actuales:
+
+- `resources`: catálogo de recursos con caché y rate limit.
+- `emergency`: zonas de emergencia, necesidades, fuentes y resumen operacional.
 
 ## Resumen
 
@@ -27,8 +30,11 @@ apivenezuelaearthquake_backend/
 ├── .env.dev
 ├── src_python/
 │   ├── application/
+│   │   ├── emergency_use_case.py
 │   │   └── get_resources_use_case.py
 │   ├── domain/
+│   │   ├── emergency_models.py
+│   │   ├── emergency_repository_ports.py
 │   │   ├── models.py
 │   │   ├── repository_ports.py
 │   │   └── helpers/
@@ -39,58 +45,55 @@ apivenezuelaearthquake_backend/
 │       ├── fastapi_app.py
 │       ├── adapters/
 │       │   ├── mock_db_repository_adapter.py
+│       │   ├── mock_emergency_zone_repository_adapter.py
 │       │   ├── redis_cache_adapter.py
 │       │   └── redis_rate_limiter_adapter.py
 │       └── http/
+│           ├── emergency_routes.py
 │           ├── routes.py
 │           ├── rate_limiter_decorator.py
-│           └── controllers/
-│               └── resources_controller.py
+│           ├── controllers/
+│           │   ├── emergency_controller.py
+│           │   └── resources_controller.py
+│           └── schemas/
+│               └── emergency_schemas.py
 └── tests/
-    └── test_api_core.py
+    ├── test_api_core.py
+    └── test_emergency.py
 ```
 
 ## Endpoints Disponibles
 
-### Público
+### Resources
 
 - `GET /api/v1/status`
-  Devuelve estado simple de salud y versión.
-
-### Protegidos con `X-API-Key`
-
 - `GET /api/v1/resources`
-  Lista recursos desde caché o repositorio mock.
+- `POST /api/v1/resources/parse-value`
 
-Parámetros:
+Parámetros de `GET /api/v1/resources`:
 
 - `category`: filtra por categoría exacta.
 - `refresh`: si vale `true`, fuerza lectura fresca y reescritura de caché.
 
-- `POST /api/v1/resources/parse-value`
-  Ejecuta parseo auxiliar de valores numéricos y fecha.
+### Emergency
 
-Payload de ejemplo:
+- `GET /api/v1/emergency/zones`
+- `GET /api/v1/emergency/zones/{zone_id}`
+- `POST /api/v1/emergency/zones`
+- `PATCH /api/v1/emergency/zones/{zone_id}/status`
+- `GET /api/v1/emergency/needs`
+- `GET /api/v1/emergency/sources`
+- `GET /api/v1/emergency/summary`
 
-```json
-{
-  "value": "1.250,75",
-  "fecha": "2026-06-30"
-}
-```
+Filtros de `GET /api/v1/emergency/zones`:
 
-Respuesta de ejemplo:
+- `state`
+- `municipality`
+- `status`
+- `attended`
+- `need`
 
-```json
-{
-  "original": "1.250,75",
-  "parsed_float": 1250.75,
-  "parsed_int": 1250,
-  "parsed_fecha": "2026-06-30T00:00:00"
-}
-```
-
-### Documentación Protegida con Basic Auth
+### Documentación Protegida Con Basic Auth
 
 - `GET /docs`
 - `GET /redoc`
@@ -130,18 +133,19 @@ Con `ENVIRONMENT=development`:
 - El worker proactivo no se inicia.
 - Si `USE_REDIS=False`, el contenedor usa directamente fallback en memoria sin intentar `ping()` a Redis.
 
-### 🚀 Entorno de Producción (`ENVIRONMENT=production`)
-Fijado para despliegues de grado de producción:
-1. **Validación Estricta de API Key**: Bloqueo estricto del tráfico anónimo y denegaciones `401 Unauthorized` / `403 Forbidden`.
-2. **Worker de Caché Distribuido con Autolock**: Sincronización precisa y background loop a través de locks distribuidos en Redis.
-3. **Hot-Reload Deshabilitado**: Optimización máxima de hilos y sockets.
+### Producción
 
----
+Con `ENVIRONMENT=production`:
 
-## 🚀 Guía de Levantamiento de la Aplicación
+- `reload=False`.
+- La API key se valida estrictamente.
+- El worker proactivo puede refrescar caché en background.
+- Si `USE_REDIS=True`, la app intenta usar Redis real y cae a fallback sólo si la conexión falla.
 
-### Paso 1: Instalar Dependencias Locales (Opcional si usa Docker)
-Crear un entorno virtual de Python y arrancar dependencias:
+## Guía De Levantamiento
+
+### Opción 1: Python local
+
 ```bash
 python -m venv .venv
 ```
@@ -154,11 +158,6 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Importante:
-- Si ejecutas `python app.py` sin activar el entorno virtual, es normal que falle con errores como `ModuleNotFoundError: No module named 'uvicorn'`.
-- En Windows puedes arrancar directamente con `.\.venv\Scripts\python.exe app.py`.
-- En Linux o macOS puedes arrancar directamente con `./.venv/bin/python app.py`.
-
 ```bash
 copy .env.dev .env
 ```
@@ -169,9 +168,12 @@ python app.py
 
 La API quedará escuchando en `http://localhost:<PORT>`.
 
-### Opción 2: Docker Compose
+Importante:
 
-El compose ya soporta puertos distintos por entorno.
+- Si ejecutas `python app.py` sin activar el entorno virtual, puede fallar por dependencias ausentes.
+- En Windows puedes arrancar directamente con `./.venv/Scripts/python.exe app.py`.
+
+### Opción 2: Docker Compose
 
 Linux/macOS:
 
@@ -190,27 +192,24 @@ Si no defines `PORT`, se usa `8000`.
 
 ## Seguridad
 
-- Todas las rutas incluidas bajo `app.include_router(..., prefix="/api", dependencies=[Security(validate_api_key)])` requieren `X-API-Key`.
-- `GET /api/v1/status` también cae bajo ese prefijo, pero en desarrollo admite bypass por diseño.
-- `/docs` y `/redoc` no son públicas; usan autenticación Basic.
+- Todas las rutas montadas bajo `/api` requieren `X-API-Key` en producción.
+- `GET /api/v1/status` también cae bajo ese prefijo, así que en producción no es pública.
+- `/docs` y `/redoc` usan autenticación Basic.
 
-Ejemplo con cURL:
+## Redis, Caché Y Rate Limit
 
-```bash
-curl -X GET "http://localhost:8000/api/v1/resources" -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance"
-```
+- `GET /api/v1/resources` usa el decorador de rate limit definido en [src_python/infrastructure/http/rate_limiter_decorator.py](src_python/infrastructure/http/rate_limiter_decorator.py).
+- El límite actual es `20` peticiones por `60` segundos por IP y nombre de función.
+- La caché de recursos usa claves del tipo `resources:list:<category>`.
+- Cuando Redis no está disponible, la caché se sustituye por `MockRedisClient` en memoria y el rate limit pasa a modo permisivo.
 
 ## Ejemplos De Uso
 
-### 1. Health check
-
-Request:
+### Health check
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/status" -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance"
 ```
-
-Response:
 
 ```json
 {
@@ -220,63 +219,21 @@ Response:
 }
 ```
 
-### 2. Listar recursos
-
-Request:
+### Listar recursos
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/resources" -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance"
 ```
 
-Response:
-
-```json
-[
-  {
-    "id": "res_01",
-    "name": "Servicio de Autenticación Central",
-    "description": "Clúster SSO integrado con soporte JWT.",
-    "category": "Sistemas",
-    "created_at": "2026-06-30T10:00:00",
-    "properties": {
-      "sla": "99.99%",
-      "owner": "DevOps Team"
-    }
-  }
-]
-```
-
-El arreglo real contiene más de un recurso; el ejemplo está acotado al formato de respuesta.
-
-### 3. Filtrar por categoría
-
-Request:
+### Filtrar recursos por categoría
 
 ```bash
-cp .env.dev .env
+curl -G "http://localhost:8000/api/v1/resources" \
+  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
+  --data-urlencode "category=IA"
 ```
 
-### Paso 3: Arrancar con Docker Compose (Recomendado)
-Levanta de manera automática la API funcional y el servidor Redis de caché en contenedores independientes:
-```bash
-docker-compose up --build -d
-```
-La aplicación se encontrará lista en `http://localhost:8000`.
-
----
-
-## 🛠️ Pruebas Locales Manuales durante el Desarrollo
-
-Durante el desarrollo, no necesitas configurar Redis ni API Keys válidas en cada petición gracias al **Modo Desarrollo**. Aquí tienes una guía rápida de cómo probar tu API de inmediato:
-
-### 1. Probar sin Redis (Auto-Mock)
-Si ejecutas la API localmente (`python app.py`) y no tienes un servidor Redis corriendo, la aplicación detectará el fallo de conexión automáticamente o la variable `ENVIRONMENT=development` y activará el **`MockRedisClient`**.
-- La API seguirá funcionando perfectamente.
-- Los límites de peticiones (Rate Limit) registrarán logs pero no bloquearán tus consultas.
-
-### 5. Parsear valor financiero
-
-Request:
+### Parsear valor financiero
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/resources/parse-value" \
@@ -285,26 +242,40 @@ curl -X POST "http://localhost:8000/api/v1/resources/parse-value" \
   -d '{"value":"1.250,75","fecha":"2026-06-30"}'
 ```
 
-Response:
-
-```json
-{
-  "original": "1.250,75",
-  "parsed_float": 1250.75,
-  "parsed_int": 1250,
-  "parsed_fecha": "2026-06-30T00:00:00"
-}
-```
-
-### 6. Abrir Swagger protegido
-
-Request:
+### Listar zonas de emergencia
 
 ```bash
-curl -u admin:admin123 "http://localhost:8000/docs"
+curl -X GET "http://localhost:8000/api/v1/emergency/zones" -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance"
 ```
 
-### 7. Respuestas típicas de autenticación
+### Filtrar zonas por estado y necesidad
+
+```bash
+curl -G "http://localhost:8000/api/v1/emergency/zones" \
+  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
+  --data-urlencode "state=Lara" \
+  --data-urlencode "need=agua"
+```
+
+### Crear zona de emergencia
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/emergency/zones" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
+  -d '{"state":"Táchira","municipality":"San Cristóbal","description":"Zona con necesidad de refugio temporal reportada por operadores.","needs":["refugio"],"source_name":"Formulario manual","source_type":"manual"}'
+```
+
+### Actualizar estado de zona
+
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/emergency/zones/zone_02/status" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
+  -d '{"status":"attended"}'
+```
+
+### Respuestas típicas de error
 
 Sin API key en producción:
 
@@ -330,21 +301,30 @@ Con límite excedido:
 }
 ```
 
-## Redis, Caché Y Rate Limit
+Con necesidad inválida al crear una zona:
 
-- `GET /api/v1/resources` usa el decorador de rate limit definido en `rate_limiter_decorator.py`.
-- El límite actual es `20` peticiones por `60` segundos por IP y nombre de función.
-- La caché de recursos usa claves del tipo `resources:list:<category>`.
-- Cuando Redis no está disponible, la caché se sustituye por `MockRedisClient` en memoria y el rate limit pasa a modo permisivo.
+```json
+{
+  "detail": "Necesidad 'internet' no reconocida. Valores permitidos: agua, comida, medicinas, ropa, refugio, transporte, atención médica, maquinaria, voluntarios"
+}
+```
 
 ## Pruebas
 
-La suite presente hoy en el repo es:
+Suites actuales:
 
 - `tests/test_api_core.py`
+- `tests/test_emergency.py`
 
-Ejecutar:
+Ejecutar todo:
 
 ```bash
-pytest tests/test_api_core.py
+pytest tests/test_api_core.py tests/test_emergency.py
 ```
+
+Cobertura funcional actual:
+
+- parsing financiero;
+- `GetResourcesUseCase`;
+- `EmergencyUseCase`;
+- endpoints HTTP de `resources` y `emergency`.
