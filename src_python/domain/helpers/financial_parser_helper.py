@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 from datetime import datetime
 
 logger = logging.getLogger("api.helpers")
@@ -9,6 +9,10 @@ class FinancialParserHelper:
     Helper utilitario del dominio para formateo numérico, conversión y normalización de fechas.
     Completamente puro y libre de dependencias de infraestructura.
     """
+
+    @staticmethod
+    def _coerce_text(value: Any) -> str:
+        return str(value).strip()
     
     @staticmethod
     def parse_float(value: Any, default: float = 0.0) -> float:
@@ -19,7 +23,7 @@ class FinancialParserHelper:
             return float(value)
             
         try:
-            cleaned = str(value).strip().replace(".", "").replace(",", ".")
+            cleaned = FinancialParserHelper._coerce_text(value).replace(".", "").replace(",", ".")
             return float(cleaned)
         except (ValueError, TypeError):
             logger.warning(f"No se pudo parsear el valor a float: {value}. Retornando default: {default}")
@@ -36,7 +40,7 @@ class FinancialParserHelper:
             return int(value)
             
         try:
-            cleaned = str(value).strip().split(".")[0].replace(",", "")
+            cleaned = FinancialParserHelper._coerce_text(value).split(".")[0].replace(",", "")
             return int(cleaned)
         except (ValueError, TypeError):
             return default

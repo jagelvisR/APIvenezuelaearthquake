@@ -8,9 +8,8 @@ logger = logging.getLogger("api.infrastructure")
 
 class RedisRateLimiterAdapter(IRateLimiter):
     """Adaptador de Infraestructura para Limitar cuotas de peticiones mediante algoritmo de Sliding Window."""
-    def __init__(self):
-        if not getattr(settings, "USE_REDIS", True):
-            logger.info("Redis desactivado por configuración. Rate limiter en modo permisivo local.")
+    def __init__(self, enabled: bool = True):
+        if not enabled:
             self.client = None
             self._available = False
             return

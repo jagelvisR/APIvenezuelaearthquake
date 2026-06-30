@@ -7,9 +7,9 @@ services:
     container_name: apivenezuelaearthquake_api
     restart: always
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:${PORT:-8000}"
     environment:
-      - PORT=8000
+      - PORT=${PORT:-8000}
       - REDIS_HOST=redis_cache
       - REDIS_PORT=6379
       - API_KEY=secure_apivenezuelaearthquake_key_v1_high_performance

@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     # Entorno de ejecución: 'development' o 'production'
     ENVIRONMENT: str = "production"
 
+    # Puerto HTTP del servidor ASGI
+    PORT: int = 8000
+
     # Configuración de Redis
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
