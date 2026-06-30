@@ -60,6 +60,32 @@ Fijado para despliegues de grado de producción:
 
 ---
 
+## 🧰 Versiones Recomendadas
+
+Para evitar errores de entorno y diferencias entre máquinas, use estas versiones base:
+
+- **Python**: `3.13.x` recomendado. Mínimo práctico para este proyecto: `3.11+`.
+- **pip**: `24+` recomendado.
+- **virtualenv / venv**: usar el módulo nativo `python -m venv`.
+- **Redis Server**: `7.x` recomendado si desea ejecutar caché/rate-limit real. Si `USE_REDIS=False`, Redis no es obligatorio en desarrollo.
+- **Docker Engine**: `24+` recomendado.
+- **Docker Compose**: `v2.20+` recomendado.
+- **Git**: `2.40+` recomendado.
+
+Dependencias Python del proyecto:
+
+- **FastAPI**: `>=0.110.0`
+- **Uvicorn**: `>=0.28.0`
+- **Pydantic**: `>=2.6.0`
+- **pydantic-settings**: `>=2.2.0`
+- **redis-py**: `>=5.0.0`
+- **pytest**: `>=8.0.0`
+- **httpx**: `>=0.27.0`
+
+Si va a desplegar en Vercel, use la versión más reciente de la CLI de Vercel y mantenga `requirements.txt` como fuente principal de dependencias.
+
+---
+
 ## 🚀 Guía de Levantamiento de la Aplicación
 
 ### Paso 1: Instalar Dependencias Locales (Opcional si usa Docker)
@@ -70,13 +96,24 @@ source .venv/bin/activate  # En Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+Importante:
+- Si ejecutas `python app.py` sin activar el entorno virtual, es normal que falle con errores como `ModuleNotFoundError: No module named 'uvicorn'`.
+- En Windows puedes arrancar directamente con `.\.venv\Scripts\python.exe app.py`.
+- En Linux o macOS puedes arrancar directamente con `./.venv/bin/python app.py`.
+
 ### Paso 2: Configurar su entorno
 Para desarrollo local, copie `.env.dev` o configure la variable `ENVIRONMENT=development` en su archivo `.env`:
 ```bash
 cp .env.dev .env
 ```
 
-### Paso 3: Arrancar con Docker Compose (Recomendado)
+### Paso 3: Arrancar localmente sin Docker
+Con el entorno virtual ya activo, o usando el ejecutable del `.venv`, inicie la API:
+```bash
+python app.py
+```
+
+### Paso 4: Arrancar con Docker Compose (Recomendado)
 Levanta de manera automática la API funcional y el servidor Redis de caché en contenedores independientes:
 ```bash
 docker-compose up --build -d
@@ -90,7 +127,7 @@ La aplicación se encontrará lista en `http://localhost:8000`.
 Durante el desarrollo, no necesitas configurar Redis ni API Keys válidas en cada petición gracias al **Modo Desarrollo**. Aquí tienes una guía rápida de cómo probar tu API de inmediato:
 
 ### 1. Probar sin Redis (Auto-Mock)
-Si ejecutas la API localmente (`python app.py`) y no tienes un servidor Redis corriendo, la aplicación detectará el fallo de conexión automáticamente o la variable `ENVIRONMENT=development` y activará el **`MockRedisClient`**.
+Si ejecutas la API localmente (`python app.py`) y no tienes un servidor Redis corriendo, la aplicación usará directamente el modo mock cuando `USE_REDIS=False`, o activará el failover automático si Redis está habilitado pero no responde.
 - La API seguirá funcionando perfectamente.
 - Los límites de peticiones (Rate Limit) registrarán logs pero no bloquearán tus consultas.
 
@@ -135,3 +172,70 @@ Para arrancar las suites de testeo unitarias y comprobar la integridad funcional
 ```bash
 pytest
 ```
+
+---
+
+## 🆘 Emergency endpoints (MVP mock/in-memory)
+
+> **Nota:** Esta primera versión del módulo Emergency usa **datos mock en memoria**. Los reportes **no son persistentes** y se pierden al reiniciar el proceso. No almacena datos personales sensibles (nombre, cédula, teléfono ni dirección exacta).
+
+Endpoints bajo el prefijo `/api/v1/emergency` (tag **Emergency** en Swagger):
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/zones` | Lista zonas reportadas (filtros: `state`, `municipality`, `status`, `attended`, `need`) |
+| `GET` | `/zones/{zone_id}` | Detalle de una zona |
+| `POST` | `/zones` | Crea un reporte de zona en memoria |
+| `PATCH` | `/zones/{zone_id}/status` | Actualiza el estado operativo |
+| `GET` | `/needs` | Resumen de necesidades agrupadas |
+| `GET` | `/sources` | Fuentes de información registradas |
+| `GET` | `/summary` | Resumen general (totales, necesidades críticas, zonas por estado) |
+
+**Estados permitidos:** `reported`, `needs_attention`, `in_progress`, `attended`, `resolved`
+
+**Necesidades reconocidas:** `agua`, `comida`, `medicinas`, `ropa`, `refugio`, `transporte`, `atención médica`, `maquinaria`, `voluntarios`
+
+### Ejemplos con cURL
+
+Listar zonas que necesitan agua en Lara:
+```bash
+curl "http://localhost:8000/api/v1/emergency/zones?state=Lara&need=agua"
+```
+
+Ver detalle de una zona:
+```bash
+curl "http://localhost:8000/api/v1/emergency/zones/zone_01"
+```
+
+Crear un reporte de zona (sin datos personales):
+```bash
+curl -X POST "http://localhost:8000/api/v1/emergency/zones" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "state": "Carabobo",
+    "municipality": "Valencia",
+    "sector": "Zona industrial",
+    "description": "Comunidad sin acceso a agua potable. Sin dirección exacta.",
+    "needs": ["agua", "transporte"],
+    "status": "reported",
+    "attended": false,
+    "source_name": "Discord - Coordinación Voluntarios VE",
+    "source_type": "discord"
+  }'
+```
+
+Actualizar estado de una zona:
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/emergency/zones/zone_03/status" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "in_progress"}'
+```
+
+Resumen de necesidades y panorama general:
+```bash
+curl "http://localhost:8000/api/v1/emergency/needs"
+curl "http://localhost:8000/api/v1/emergency/sources"
+curl "http://localhost:8000/api/v1/emergency/summary"
+```
+
+Documentación interactiva (usuario `admin`, contraseña `admin123`): `http://localhost:8000/docs`
