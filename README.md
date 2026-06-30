@@ -1,137 +1,376 @@
 # Backend API - APIVENEZUELAEARTHQUAKE
 
-Este proyecto ha sido generado con una robusta **Arquitectura Hexagonal (Clean Architecture)** enfocada en la alta escalabilidad, mantenimiento simple y máximo rendimiento, desacoplado de dependencias particulares.
+Backend FastAPI con Arquitectura Hexagonal para exponer recursos consultables, parseo financiero auxiliar, caché con Redis opcional y fallback en memoria.
 
-Además, cuenta con un **Modo Desarrollo (Development Mode)** integrado para agilizar el flujo de trabajo de los ingenieros de software de forma local o en entornos compartidos.
+## Resumen
 
----
+- Framework HTTP: FastAPI.
+- Entry point ASGI: `app:app`.
+- Prefix global de API: `/api`.
+- Versionado actual: `/v1`.
+- Seguridad: API key para rutas bajo `/api` y Basic Auth para `/docs` y `/redoc`.
+- Caché y rate limit: Redis cuando está disponible; fallback local cuando Redis está desactivado o no responde.
+- Puerto: configurable con la variable `PORT`.
 
-## 🛠️ Arquitectura de Directorios
+## Estructura Real Del Proyecto
 
-El backend se estructura de la siguiente manera bajo el principio de separación de responsabilidades:
-
-```
+```text
 apivenezuelaearthquake_backend/
-├── app.py                      # Punto de arranque de la aplicación usando Uvicorn.
-├── Dockerfile                  # Empaquetado Docker optimizado en dos fases (Slim).
-├── docker-compose.yml          # Define servicios de API y Redis DB de forma local.
-├── requirements.txt            # Dependencias actualizadas del ecosistema Python.
-├── .env                        # Configuración del entorno de producción.
-├── .env.dev                    # Configuración del entorno de desarrollo estructurado.
-├── .env.example                # Plantilla de variables de entorno para producción.
-└── src_python/
-    ├── domain/                 # Capa de Core Logics y Reglas de Negocio.
-    │   ├── models.py           # Estructuras de datos (Modelos de entidad).
-    │   ├── repository_ports.py # Interfaces abstractas regulando adaptadores (Puertos).
-    │   └── helpers/            # Calculadores e identificadores numéricos y de fechas puros.
-    ├── application/            # Casos de uso de negocio (Use Cases).
-    │   └── get_resources_use_case.py
-    └── infrastructure/         # Adaptadores (Entrada y Salida).
-        ├── config.py           # Centralizador de Pydantic Settings & Env Vars.
-        ├── container.py        # Inyector de Dependencias (DI Container Singleton).
-        ├── fastapi_app.py      # Levantamiento de Lifespans, Middleware de CORS, Seguridad.
-        ├── adapters/           # Adaptadores de tecnologías externas (Redis, Mock DB).
-        │   ├── redis_cache_adapter.py
-        │   ├── redis_rate_limiter_adapter.py
-        │   └── mock_db_repository_adapter.py
-        └── http/               # Capa de API Controllers y Rutas.
-            ├── routes.py       # Definición e interfaz web de las rutas de FastAPI.
-            └── controllers/    # Controladores que mapean y procesan las solicitudes.
-                └── resources_controller.py  # Controlador HTTP que delega a los casos de uso.
+├── app.py
+├── Dockerfile
+├── docker-compose.yml
+├── README.md
+├── ARCHITECTURE.md
+├── ARCHITECTURE_DISCORD.md
+├── requirements.txt
+├── .env.example
+├── .env.dev
+├── src_python/
+│   ├── application/
+│   │   └── get_resources_use_case.py
+│   ├── domain/
+│   │   ├── models.py
+│   │   ├── repository_ports.py
+│   │   └── helpers/
+│   │       └── financial_parser_helper.py
+│   └── infrastructure/
+│       ├── config.py
+│       ├── container.py
+│       ├── fastapi_app.py
+│       ├── adapters/
+│       │   ├── mock_db_repository_adapter.py
+│       │   ├── redis_cache_adapter.py
+│       │   └── redis_rate_limiter_adapter.py
+│       └── http/
+│           ├── routes.py
+│           ├── rate_limiter_decorator.py
+│           └── controllers/
+│               └── resources_controller.py
+└── tests/
+    └── test_api_core.py
 ```
 
----
+## Endpoints Disponibles
 
-## ⚙️ Entornos de Ejecución (Desarrollo vs Producción)
+### Público
 
-El proyecto ofrece un comportamiento diferenciado según el entorno establecido por la variable `ENVIRONMENT`:
+- `GET /api/v1/status`
+  Devuelve estado simple de salud y versión.
 
-### 🛠️ Entorno de Desarrollo (`ENVIRONMENT=development`)
-Orientado a agilizar la rapidez del desarrollo y pruebas rápidas:
-1. **Bypass de API Key / Seguridad Laxa**: Los endpoints protegidos permiten el acceso con cualquier API Key o cabecera ausente, logueando un aviso de bypass local sin bloquear las solicitudes.
-2. **Hot-Reload Automático**: Al arrancar `app.py` de forma manual o con docker, los cambios se recargan al instante en caliente.
-3. **Mocks y Fallback del Almacenamiento**: Si Redis no está disponible o no se puede conectar, la API arranca con un cliente mock en memoria (`MockRedisClient`) sin caídas de servicio.
+### Protegidos con `X-API-Key`
 
-### 🚀 Entorno de Producción (`ENVIRONMENT=production`)
-Fijado para despliegues de grado de producción:
-1. **Validación Estricta de API Key**: Bloqueo estricto del tráfico anónimo y denegaciones `401 Unauthorized` / `403 Forbidden`.
-2. **Worker de Caché Distribuido con Autolock**: Sincronización precisa y background loop a través de locks distribuidos en Redis.
-3. **Hot-Reload Deshabilitado**: Optimización máxima de hilos y sockets.
+- `GET /api/v1/resources`
+  Lista recursos desde caché o repositorio mock.
 
----
+Parámetros:
 
-## 🚀 Guía de Levantamiento de la Aplicación
+- `category`: filtra por categoría exacta.
+- `refresh`: si vale `true`, fuerza lectura fresca y reescritura de caché.
 
-### Paso 1: Instalar Dependencias Locales (Opcional si usa Docker)
-Crear un entorno virtual de Python y arrancar dependencias:
+- `POST /api/v1/resources/parse-value`
+  Ejecuta parseo auxiliar de valores numéricos y fecha.
+
+Payload de ejemplo:
+
+```json
+{
+  "value": "1.250,75",
+  "fecha": "2026-06-30"
+}
+```
+
+Respuesta de ejemplo:
+
+```json
+{
+  "original": "1.250,75",
+  "parsed_float": 1250.75,
+  "parsed_int": 1250,
+  "parsed_fecha": "2026-06-30T00:00:00"
+}
+```
+
+### Documentación Protegida con Basic Auth
+
+- `GET /docs`
+- `GET /redoc`
+
+Credenciales por defecto en desarrollo según `.env.dev`:
+
+- Usuario: `admin`
+- Password: `admin123`
+
+## Variables De Entorno
+
+Definidas en [src_python/infrastructure/config.py](src_python/infrastructure/config.py).
+
+| Variable | Default | Uso |
+|---|---|---|
+| `ENVIRONMENT` | `production` | Activa comportamiento de desarrollo o producción |
+| `PORT` | `8000` | Puerto HTTP usado por Uvicorn |
+| `REDIS_HOST` | `localhost` | Host de Redis |
+| `REDIS_PORT` | `6379` | Puerto de Redis |
+| `REDIS_CACHE_DB` | `0` | Base Redis para caché |
+| `REDIS_RATE_LIMIT_DB` | `1` | Base Redis para rate limit |
+| `USE_REDIS` | `True` | Habilita Redis nativo o fallback local |
+| `DATABASE_URL` | `""` | Reservada para persistencia futura |
+| `API_KEY` | valor por defecto interno | API key para rutas protegidas |
+| `CORS_ORIGINS` | `*` | Lista separada por comas |
+| `SWAGGER_USERNAME` | `admin` | Usuario de docs |
+| `SWAGGER_PASSWORD` | `admin123` | Password de docs |
+
+## Modos De Ejecución
+
+### Desarrollo
+
+Con `ENVIRONMENT=development`:
+
+- `app.py` arranca Uvicorn con `reload=True`.
+- La validación de `X-API-Key` permite bypass local.
+- El worker proactivo no se inicia.
+- Si `USE_REDIS=False`, el contenedor usa directamente fallback en memoria sin intentar `ping()` a Redis.
+
+### Producción
+
+Con `ENVIRONMENT=production`:
+
+- `reload=False`.
+- La API key se valida estrictamente.
+- El worker proactivo puede refrescar caché en background.
+- Si `USE_REDIS=True`, la app intenta usar Redis real y cae a fallback sólo si la conexión falla.
+
+## Levantar El Proyecto Localmente
+
+### Opción 1: Python local
+
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # En Windows: .venv\Scripts\activate
+```
+
+```bash
+.venv\Scripts\activate
+```
+
+```bash
 pip install -r requirements.txt
 ```
 
-### Paso 2: Configurar su entorno
-Para desarrollo local, copie `.env.dev` o configure la variable `ENVIRONMENT=development` en su archivo `.env`:
 ```bash
-cp .env.dev .env
+copy .env.dev .env
 ```
 
-### Paso 3: Arrancar con Docker Compose (Recomendado)
-Levanta de manera automática la API funcional y el servidor Redis de caché en contenedores independientes:
 ```bash
-docker-compose up --build -d
+python app.py
 ```
-La aplicación se encontrará lista en `http://localhost:8000`.
 
----
+La API quedará escuchando en `http://localhost:<PORT>`.
 
-## 🛠️ Pruebas Locales Manuales durante el Desarrollo
+### Opción 2: Docker Compose
 
-Durante el desarrollo, no necesitas configurar Redis ni API Keys válidas en cada petición gracias al **Modo Desarrollo**. Aquí tienes una guía rápida de cómo probar tu API de inmediato:
+El compose ya soporta puertos distintos por entorno.
 
-### 1. Probar sin Redis (Auto-Mock)
-Si ejecutas la API localmente (`python app.py`) y no tienes un servidor Redis corriendo, la aplicación detectará el fallo de conexión automáticamente o la variable `ENVIRONMENT=development` y activará el **`MockRedisClient`**.
-- La API seguirá funcionando perfectamente.
-- Los límites de peticiones (Rate Limit) registrarán logs pero no bloquearán tus consultas.
+Linux/macOS:
 
-### 2. Probar Endpoints Autenticados
-Normalmente los endpoints bajo `/api/v1/...` requieren la cabecera `X-API-Key` y validación robusta. Sin embargo, en desarrollo:
-- Puedes enviar peticiones **sin cabecera** o con cualquier valor arbitrario (ej. `X-API-Key: lala`).
-- El backend los validará de manera laxa, registrará un aviso en la terminal `[BYPASS] API-Key checking bypassed under development mode` y te dará acceso sin problemas.
-
-#### Ejemplo de Petición con cURL:
 ```bash
-curl -X GET "http://localhost:8000/api/v1/resources" \
-  -H "X-API-Key: desarrollo"
+PORT=8081 docker compose up --build
 ```
 
-#### Ejemplo de Petición con Python `requests`:
-```python
-import requests
+PowerShell:
 
-headers = {"X-API-Key": "cualquier_cosa_en_desarrollo"}
-response = requests.get("http://localhost:8000/api/v1/resources", headers=headers)
-print(response.json())
+```powershell
+$env:PORT=8081
+docker compose up --build
 ```
 
+Si no defines `PORT`, se usa `8000`.
 
----
+## Seguridad
 
-## 🔒 Consumo Seguro de Endpoints
+- Todas las rutas incluidas bajo `app.include_router(..., prefix="/api", dependencies=[Security(validate_api_key)])` requieren `X-API-Key`.
+- `GET /api/v1/status` también cae bajo ese prefijo, pero en desarrollo admite bypass por diseño.
+- `/docs` y `/redoc` no son públicas; usan autenticación Basic.
 
-### 1. Validación de Salud (Health Probe)
-- **Ruta**: `GET http://localhost:8000/`
-- **Autenticación**: Ninguna (Público).
+Ejemplo con cURL:
 
-### 2. Obtener Recursos (Endpoint Protegido)
-- **Ruta**: `GET http://localhost:8000/api/v1/resources`
-- **Autenticación**: Requiere la cabecera `X-API-Key` provista en su archivo `.env` (Excepto en `ENVIRONMENT=development`).
-- **Rate-limit**: Protegido con **20 peticiones por minuto** para prevenir sobreingestas.
-
----
-
-## 🧪 Ejecución de Pruebas de Software
-Para arrancar las suites de testeo unitarias y comprobar la integridad funcional de forma automatizada, use:
 ```bash
-pytest
+curl -X GET "http://localhost:8000/api/v1/resources" -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance"
 ```
+
+## Ejemplos De Uso
+
+### 1. Health check
+
+Request:
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/status" -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance"
+```
+
+Response:
+
+```json
+{
+  "status": "healthy",
+  "message": "La API corre de manera óptima utilizando Arquitectura Hexagonal.",
+  "version": "1.0.0"
+}
+```
+
+### 2. Listar recursos
+
+Request:
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/resources" -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance"
+```
+
+Response:
+
+```json
+[
+  {
+    "id": "res_01",
+    "name": "Servicio de Autenticación Central",
+    "description": "Clúster SSO integrado con soporte JWT.",
+    "category": "Sistemas",
+    "created_at": "2026-06-30T10:00:00",
+    "properties": {
+      "sla": "99.99%",
+      "owner": "DevOps Team"
+    }
+  }
+]
+```
+
+El arreglo real contiene más de un recurso; el ejemplo está acotado al formato de respuesta.
+
+### 3. Filtrar por categoría
+
+Request:
+
+```bash
+curl -G "http://localhost:8000/api/v1/resources" \
+  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
+  --data-urlencode "category=IA"
+```
+
+Response esperada:
+
+```json
+[
+  {
+    "id": "res_02",
+    "name": "Motor de Predicciones AI",
+    "description": "Servicio conversacional de inferencia inteligente.",
+    "category": "IA",
+    "created_at": "2026-06-30T10:00:00",
+    "properties": {
+      "model": "deepseek-reasoner",
+      "api_calls_quota": 5000
+    }
+  }
+]
+```
+
+### 4. Forzar refresh de caché
+
+Request:
+
+```bash
+curl -G "http://localhost:8000/api/v1/resources" \
+  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
+  --data-urlencode "refresh=true"
+```
+
+Efecto:
+
+- omite la lectura de caché para esa llamada;
+- vuelve a consultar el repositorio mock;
+- reescribe la clave de caché correspondiente.
+
+### 5. Parsear valor financiero
+
+Request:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/resources/parse-value" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: secure_apivenezuelaearthquake_key_v1_high_performance" \
+  -d '{"value":"1.250,75","fecha":"2026-06-30"}'
+```
+
+Response:
+
+```json
+{
+  "original": "1.250,75",
+  "parsed_float": 1250.75,
+  "parsed_int": 1250,
+  "parsed_fecha": "2026-06-30T00:00:00"
+}
+```
+
+### 6. Abrir Swagger protegido
+
+Request:
+
+```bash
+curl -u admin:admin123 "http://localhost:8000/docs"
+```
+
+### 7. Respuestas típicas de autenticación
+
+Sin API key en producción:
+
+```json
+{
+  "detail": "Falta la API Key en el encabezado 'X-API-Key' para autenticación."
+}
+```
+
+Con API key inválida en producción:
+
+```json
+{
+  "detail": "La API Key proporcionada es inválida o no cuenta con suficientes permisos."
+}
+```
+
+Con límite excedido:
+
+```json
+{
+  "detail": "Has excedido el límite de 20 peticiones por 60 segundos."
+}
+```
+
+## Redis, Caché Y Rate Limit
+
+- `GET /api/v1/resources` usa el decorador de rate limit definido en `rate_limiter_decorator.py`.
+- El límite actual es `20` peticiones por `60` segundos por IP y nombre de función.
+- La caché de recursos usa claves del tipo `resources:list:<category>`.
+- Cuando Redis no está disponible, la caché se sustituye por `MockRedisClient` en memoria y el rate limit pasa a modo permisivo.
+
+## Pruebas
+
+La suite presente hoy en el repo es:
+
+- `tests/test_api_core.py`
+
+Ejecutar:
+
+```bash
+pytest tests/test_api_core.py
+```
+
+Cobertura actual de esa suite:
+
+- `FinancialParserHelper.parse_float()`
+- `FinancialParserHelper.parse_int()`
+- `GetResourcesUseCase.execute()`
+
+## Notas Operativas
+
+- El `Dockerfile` expone `8000`, pero el proceso escucha en el valor de `PORT`.
+- El módulo raíz [app.py](app.py) exporta `app`, por lo que sirve tanto para `python app.py` como para `uvicorn app:app`.
+- `DATABASE_URL` aún no se usa en el código actual.

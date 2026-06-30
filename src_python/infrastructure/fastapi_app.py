@@ -1,15 +1,16 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Security, HTTPException, status
+import secrets
+
+from fastapi import FastAPI, Security, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import APIKeyHeader
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
 
 from .config import settings
 from .container import container
 from .http.routes import router
-from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
-import secrets
 
 # Configuración limpia de logging estructurado
 logging.basicConfig(
@@ -37,7 +38,7 @@ def validate_swagger_auth(credentials: HTTPBasicCredentials = Security(security_
 
 async def validate_api_key(api_key: str = Security(api_key_header)):
     """Verifica que el cliente suministre una API Key válida en la cabecera 'X-API-Key'"""
-    # Si está en modo de desarrollo, se permite bypass o validación laxa de API Key para facilitar el desarrollo local
+    # En desarrollo se permite bypass para no forzar credenciales en pruebas manuales locales.
     if settings.ENVIRONMENT == "development":
         logger.info("🛠️ Modo Desarrollo Activo: Se permite Bypass de validación de API Key.")
         return api_key or "dev_bypass_key"
@@ -64,7 +65,7 @@ async def proactive_cache_worker_loop():
     Si settings.USE_REDIS es True, utiliza un Lock Distribuido en Redis para evitar que múltiples instancias
     dupliquen el scrapeo. Si es False, realiza la actualización directamente sin intentar adquirir locks de Redis.
     """
-    # En entorno de desarrollo rápido, se deshabilita el worker para evitar spam de logs o consumos de infraestructura
+    # En desarrollo se deja en reposo para evitar ruido y trabajo en background innecesario.
     if settings.ENVIRONMENT == "development":
         logger.info("🛠️ Modo Desarrollo Activo: Worker proactivo de background en reposo por defecto.")
         return
@@ -124,19 +125,21 @@ async def proactive_cache_worker_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicia la tarea en segundo plano al arrancar la aplicación
-    worker_task = asyncio.create_task(proactive_cache_worker_loop())
+    worker_task = None
+    # Sólo crea el worker en entornos donde el proceso debe comportarse como servicio persistente.
+    if settings.ENVIRONMENT != "development":
+        worker_task = asyncio.create_task(proactive_cache_worker_loop())
     yield
-    # Cancela la tarea en segundo plano al apagar la aplicación
+    if worker_task is None:
+        return
+
+    # Cierra la tarea de refresh de forma explícita para no dejar trabajo pendiente al apagar Uvicorn.
     logger.info("🛑 Deteniendo el worker de caché proactivo...")
     worker_task.cancel()
     try:
         await worker_task
     except asyncio.CancelledError:
         pass
-
-
-from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 
 app = FastAPI(
     title="Clean Architecture Production API",
@@ -171,9 +174,7 @@ async def secure_redoc_html(username: str = Security(validate_swagger_auth)):
         title=f"{app.title} - ReDoc"
     )
 
-# Integración similar a la arquitectura Route de Laravel:
-# - Prefijado global para versionamiento (ej: /api)
-# - Aplicación de Middleware de Seguridad unificado a nivel de grupo de rutas
+# El prefijo `/api` y la dependencia global garantizan una política uniforme de autenticación.
 app.include_router(
     router,
     prefix="/api",

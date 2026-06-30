@@ -4,16 +4,16 @@ from typing import Optional, Dict, Any
 from .controllers.resources_controller import ResourcesController
 from .rate_limiter_decorator import rate_limit
 
-# Router principal v1
+# Router HTTP actual del proyecto. Todo cuelga de `/api/v1` cuando se monta desde fastapi_app.py.
 router = APIRouter(prefix="/v1")
 
-# --- 1. Definición de Rutas Directas (FastAPI Idiomático) ---
+# --- Endpoints de salud y recursos ---
 @router.get("/status", tags=["Utility"])
 def get_status():
     """Endpoint público informativo de salud."""
     return ResourcesController.get_root_status()
 
-# --- 2. Rutas con parámetros de entrada ---
+# `refresh=true` fuerza bypass de caché; el rate limit se aplica por IP y nombre de función.
 @router.get("/resources", tags=["Resources"])
 @rate_limit(limit=20, window=60)
 def get_resources(

@@ -23,7 +23,8 @@ class Container:
         return cls._instance
 
     def _initialize(self):
-        # 1. Resolver Adaptadores de Caché y Límite de Peticiones (Redis vs Fallback InMemory)
+        # Resuelve servicios de infraestructura una sola vez al boot.
+        # Si Redis está desactivado, evita cualquier ping y usa fallback local desde el inicio.
         from .adapters.redis_cache_adapter import RedisCacheAdapter, MockRedisClient
         from .adapters.redis_rate_limiter_adapter import RedisRateLimiterAdapter
         
@@ -45,14 +46,14 @@ class Container:
                   self.cache_service = RedisCacheAdapter() # Auto fallbacks a MockRedisClient
                   self.rate_limiter = RedisRateLimiterAdapter() # Auto fallbacks a fail-safe
         else:
-             logger.info("ℹ️ Redis se encuentra desactivado bajo el flag USE_REDIS. Usando Adaptadores InMemory.")
-             self.cache_service = RedisCacheAdapter() # Auto fallbacks a MockRedisClient
-             self.rate_limiter = RedisRateLimiterAdapter() # Auto fallbacks a fail-safe
+            logger.info("ℹ️ Redis se encuentra desactivado bajo el flag USE_REDIS. Usando Adaptadores InMemory.")
+            self.cache_service = RedisCacheAdapter(enabled=False)
+            self.rate_limiter = RedisRateLimiterAdapter(enabled=False)
 
-        # 2. Adaptador de Almacenamiento Primario
+        # El repositorio actual es mock; DATABASE_URL queda reservada para una implementación futura.
         self.resource_repository = MockDBRepositoryAdapter()
         
-        # 3. Casos de Uso del Negocio
+        # El caso de uso se construye sobre puertos, no sobre detalles HTTP o Redis.
         self.get_resources_use_case = GetResourcesUseCase(
             repository=self.resource_repository,
             cache_service=self.cache_service

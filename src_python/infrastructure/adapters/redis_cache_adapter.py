@@ -9,7 +9,11 @@ logger = logging.getLogger("api.infrastructure")
 
 class RedisCacheAdapter(ICacheService):
     """Adaptador de Infraestructura para gestión de Caché con Redis."""
-    def __init__(self):
+    def __init__(self, enabled: bool = True):
+        if not enabled:
+            self.client = MockRedisClient()
+            return
+
         try:
             self.client = redis.Redis(
                 host=settings.REDIS_HOST,
