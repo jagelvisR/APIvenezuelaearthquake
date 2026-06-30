@@ -54,6 +54,7 @@ class Container:
 
         # El repositorio actual es mock; DATABASE_URL queda reservada para una implementación futura.
         self.resource_repository = MockDBRepositoryAdapter()
+        self.emergency_zone_repository = MockEmergencyZoneRepositoryAdapter()
         
         # 3. Casos de Uso del Negocio
         self.get_resources_use_case = GetResourcesUseCase(

@@ -193,6 +193,7 @@ Si no defines `PORT`, se usa `8000`.
 - Todas las rutas incluidas bajo `app.include_router(..., prefix="/api", dependencies=[Security(validate_api_key)])` requieren `X-API-Key`.
 - `GET /api/v1/status` también cae bajo ese prefijo, pero en desarrollo admite bypass por diseño.
 - `/docs` y `/redoc` no son públicas; usan autenticación Basic.
+
 Ejemplo con cURL:
 
 ```bash
