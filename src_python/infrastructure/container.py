@@ -25,45 +25,52 @@ class Container:
         return cls._instance
 
     def _initialize(self):
-        # Resuelve servicios de infraestructura una sola vez al boot.
-        # Si Redis está desactivado, evita cualquier ping y usa fallback local desde el inicio.
-        from .adapters.redis_cache_adapter import RedisCacheAdapter, MockRedisClient
-        from .adapters.redis_rate_limiter_adapter import RedisRateLimiterAdapter
-        
-        use_redis_db = getattr(settings, "USE_REDIS", True)
-        if use_redis_db:
-             try:
-                  # Chequeo veloz de ping
-                  test_client = redis.Redis(
-                      host=settings.REDIS_HOST,
-                      port=settings.REDIS_PORT,
-                      socket_connect_timeout=1.5
-                  )
-                  test_client.ping()
-                  logger.info("📡 Conexión a Redis exitosa. Usando adaptadores de producción Redis.")
-                  self.cache_service = RedisCacheAdapter()
-                  self.rate_limiter = RedisRateLimiterAdapter()
-             except Exception as e:
-                  logger.warning(f"⚠️ Servidor Redis no se pudo conectar en {settings.REDIS_HOST}:{settings.REDIS_PORT} ({e}). Usando Fallback InMemory.")
-                  self.cache_service = RedisCacheAdapter() # Auto fallbacks a MockRedisClient
-                  self.rate_limiter = RedisRateLimiterAdapter() # Auto fallbacks a fail-safe
-        else:
-            logger.info("ℹ️ Redis se encuentra desactivado bajo el flag USE_REDIS. Usando Adaptadores InMemory.")
-            self.cache_service = RedisCacheAdapter(enabled=False)
-            self.rate_limiter = RedisRateLimiterAdapter(enabled=False)
+        self.cache_service, self.rate_limiter = self._build_resilience_services()
+        self.resource_repository, self.emergency_zone_repository = self._build_repositories()
+        self.get_resources_use_case, self.emergency_use_case = self._build_use_cases()
 
-        # El repositorio actual es mock; DATABASE_URL queda reservada para una implementación futura.
-        self.resource_repository = MockDBRepositoryAdapter()
-        self.emergency_zone_repository = MockEmergencyZoneRepositoryAdapter()
-        
-        # 3. Casos de Uso del Negocio
-        self.get_resources_use_case = GetResourcesUseCase(
+    def _build_resilience_services(self):
+        # Resuelve caché y rate limit una sola vez al boot.
+        # Si Redis está desactivado, evita cualquier ping y usa fallback local desde el inicio.
+        if not getattr(settings, "USE_REDIS", True):
+            logger.info("ℹ️ Redis se encuentra desactivado bajo el flag USE_REDIS. Usando Adaptadores InMemory.")
+            return RedisCacheAdapter(enabled=False), RedisRateLimiterAdapter(enabled=False)
+
+        if self._redis_available():
+            logger.info("📡 Conexión a Redis exitosa. Usando adaptadores de producción Redis.")
+            return RedisCacheAdapter(), RedisRateLimiterAdapter()
+
+        return RedisCacheAdapter(), RedisRateLimiterAdapter()
+
+    def _redis_available(self) -> bool:
+        try:
+            test_client = redis.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                socket_connect_timeout=1.5,
+            )
+            test_client.ping()
+            return True
+        except Exception as error:
+            logger.warning(
+                f"⚠️ Servidor Redis no se pudo conectar en {settings.REDIS_HOST}:{settings.REDIS_PORT} ({error}). Usando Fallback InMemory."
+            )
+            return False
+
+    def _build_repositories(self):
+        # Los repositorios actuales son mock; DATABASE_URL queda reservada para una implementación futura.
+        return MockDBRepositoryAdapter(), MockEmergencyZoneRepositoryAdapter()
+
+    def _build_use_cases(self):
+        # Los casos de uso sólo reciben puertos ya resueltos por el contenedor.
+        resources_use_case = GetResourcesUseCase(
             repository=self.resource_repository,
-            cache_service=self.cache_service
+            cache_service=self.cache_service,
         )
-        self.emergency_use_case = EmergencyUseCase(
-            repository=self.emergency_zone_repository
+        emergency_use_case = EmergencyUseCase(
+            repository=self.emergency_zone_repository,
         )
+        return resources_use_case, emergency_use_case
 
 # Instanciación única global (Singleton)
 container = Container()
